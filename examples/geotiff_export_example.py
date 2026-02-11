@@ -59,7 +59,7 @@ def create_synthetic_spatial_data(n_samples=200):
     }, geometry=geometries, crs='EPSG:4326')
     
     print(f"  Created {n_samples} spatial samples")
-    print(f"  Geographic extent: {lon.min():.2f}°W to {lon.max():.2f}°W, {lat.min():.2f}°N to {lat.max():.2f}°N")
+    print(f"  Geographic extent: {abs(lon.max()):.2f}°W to {abs(lon.min()):.2f}°W, {lat.min():.2f}°N to {lat.max():.2f}°N")
     print(f"  Deposit ratio: {labels.mean():.2%}")
     
     return data

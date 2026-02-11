@@ -493,6 +493,12 @@ class ProspectivityPredictor:
         
         print(f"GeoTIFF raster saved to {output_path}")
         print(f"  Grid size: {prospectivity_grid.shape[1]} x {prospectivity_grid.shape[0]}")
-        print(f"  Resolution: {resolution:.2f} {crs.axis_info[0].unit_name if crs.axis_info else 'units'}")
+        
+        # Safely get unit name from CRS
+        unit_name = 'units'
+        if crs.axis_info and len(crs.axis_info) > 0:
+            unit_name = crs.axis_info[0].unit_name
+        
+        print(f"  Resolution: {resolution:.2f} {unit_name}")
         print(f"  Bands: {num_bands} ({'Prospectivity, Uncertainty' if has_uncertainty else 'Prospectivity'})")
 
