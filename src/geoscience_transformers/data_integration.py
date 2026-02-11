@@ -173,9 +173,14 @@ class MultimodalDataIntegrator:
             return np.ones(len(coordinates))
             
         try:
-            kde = gaussian_kde(coordinates.T, bw_method=bandwidth/coordinates.std())
+            std = coordinates.std()
+            # Avoid division by zero
+            if std < 1e-10:
+                return np.ones(len(coordinates))
+            kde = gaussian_kde(coordinates.T, bw_method=bandwidth/std)
             density = kde(coordinates.T)
-        except:
+        except (ValueError, np.linalg.LinAlgError):
+            # Fall back to uniform density if KDE fails
             density = np.ones(len(coordinates))
             
         return density

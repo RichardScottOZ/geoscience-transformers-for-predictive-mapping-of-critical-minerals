@@ -14,11 +14,31 @@ This package provides tools for:
 __version__ = "0.1.0"
 __author__ = "Geoscience Transformers Team"
 
-from .text_processing import GeoscienceTextProcessor
-from .data_integration import MultimodalDataIntegrator
-from .models import GeoscienceTransformer, ProspectivityModel
-from .training import SelfSupervisedTrainer
-from .prediction import ProspectivityPredictor
+# Lazy imports to avoid requiring all dependencies upfront
+def __getattr__(name):
+    """Lazy loading of modules."""
+    if name == "GeoscienceTextProcessor":
+        from .text_processing import GeoscienceTextProcessor
+        return GeoscienceTextProcessor
+    elif name == "MultimodalDataIntegrator":
+        from .data_integration import MultimodalDataIntegrator
+        return MultimodalDataIntegrator
+    elif name == "GeoscienceTransformer":
+        from .models import GeoscienceTransformer
+        return GeoscienceTransformer
+    elif name == "ProspectivityModel":
+        from .models import ProspectivityModel
+        return ProspectivityModel
+    elif name == "SelfSupervisedTrainer":
+        from .training import SelfSupervisedTrainer
+        return SelfSupervisedTrainer
+    elif name == "SupervisedTrainer":
+        from .training import SupervisedTrainer
+        return SupervisedTrainer
+    elif name == "ProspectivityPredictor":
+        from .prediction import ProspectivityPredictor
+        return ProspectivityPredictor
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "GeoscienceTextProcessor",
@@ -26,5 +46,6 @@ __all__ = [
     "GeoscienceTransformer",
     "ProspectivityModel",
     "SelfSupervisedTrainer",
+    "SupervisedTrainer",
     "ProspectivityPredictor",
 ]
