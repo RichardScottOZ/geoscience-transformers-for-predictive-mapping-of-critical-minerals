@@ -148,13 +148,20 @@ No `__init__.py` in the tests directory, which can cause import issues with some
 
 The code is well-structured from a software engineering perspective (good docstrings, type hints, modular design), but **it does not implement the paper's methodology**. It is a generic mineral prospectivity mapping toolkit with transformer components that bears only superficial resemblance to the actual paper.
 
-### Recommendations
+### Remediation (Implemented)
 
-To actually implement the paper, the following would be needed:
-1. Use the NRCan geoscience BERT model (from `NRCan/Geoscience_Language_Models`) instead of `bert-base-uncased`
-2. Implement TabTransformer or FT-Transformer architecture for tabular feature fusion
-3. Implement the GEOSCAN text processing pipeline with `pdfminer`
-4. Add GloVe embedding support from the NRCan model
-5. Implement proper self-supervised pre-training with masked feature prediction and pseudo-labeling
-6. Add geochronological data handling
-7. Fix all major bugs identified above
+The following paper requirements have now been added:
+
+1. ✅ **NRCan geoscience BERT model**: Default changed to `distilbert-base-uncased` (the base that NRCan fine-tuned), with support for loading local NRCan geo-BERT models via `DistilBertTokenizer`. Embedding extraction uses mean pooling excluding CLS/SEP tokens, matching `NRCan/Geoscience_Language_Models/project_tools/functions/bert.py`.
+
+2. ✅ **TabTransformer / FT-Transformer**: Both architectures implemented with column-wise self-attention, learnable column-type embeddings, and [CLS] token support. These are the tabular-specific architectures used in the paper.
+
+3. ✅ **GEOSCAN text processing pipeline**: `GeoscanTextPipeline` class implements PDF extraction via `pdfminer`, French text detection/removal, CID marker removal, DOI/URL/email/phone filtering, non-ASCII conversion, and newline hyphenation removal — matching the `NRCan/Geoscience_Language_Models/project_tools/nrcan_p2/data_processing/` pipeline.
+
+4. ✅ **GloVe embeddings**: `GeoscienceGloVeEmbeddings` class supports loading 300-d domain-specific GloVe vectors from text files, gensim KeyedVectors, and the NRCan mineral CSV. Default config matches NRCan specs (window=15, iterations=15, min_count=5).
+
+5. ✅ **Masked value prediction**: Added to `SelfSupervisedTrainer` — randomly masks features and learns to reconstruct them, combined with contrastive learning loss.
+
+6. ✅ **Pseudo-labeling**: `PseudoLabelTrainer` implements iterative pseudo-label generation with confidence thresholding for semi-supervised learning.
+
+7. ✅ **NRCan repository references**: All module docstrings now reference `NRCan/Geoscience_Language_Models` and cite the relevant papers (Lawley et al. 2022, Raimondo et al. 2022, Parsa et al. 2025).

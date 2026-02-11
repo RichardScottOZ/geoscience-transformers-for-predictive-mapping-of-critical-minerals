@@ -26,7 +26,7 @@ References:
 import re
 import os
 import string
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 from pathlib import Path
 
 import pandas as pd
@@ -165,8 +165,8 @@ class GeoscanTextPipeline:
             from unidecode import unidecode_expect_ascii
             return re.sub(r'\[\?\]', ' ', unidecode_expect_ascii(text))
         except ImportError:
-            # Fallback: simple ASCII conversion
-            return text.encode('ascii', errors='replace').decode('ascii')
+            # Fallback: strip non-ASCII characters (replacing with space)
+            return re.sub(r'[^\x00-\x7F]', ' ', text)
 
     @staticmethod
     def remove_urls(text: str) -> str:
@@ -502,7 +502,7 @@ class GeoscienceTextProcessor:
 
         return pd.DataFrame(processed_data)
 
-    def process_pdf(self, pdf_path: str) -> Dict[str, any]:
+    def process_pdf(self, pdf_path: str) -> Dict[str, Any]:
         """
         Process a single PDF document through the full GEOSCAN pipeline.
 

@@ -39,7 +39,7 @@ setup(
         "shapely>=2.0.0",
         "tqdm>=4.62.0",
         "pyyaml>=6.0",
-        "pdfminer.six>=20221105",
+        "pdfminer.six>=20251230",
         "gensim>=4.0.0",
     ],
     extras_require={
