@@ -2,9 +2,24 @@
 Model Module
 
 Core transformer models for geoscience prospectivity mapping.
+
+Implements TabTransformer and FT-Transformer architectures for tabular data,
+as described in Parsa et al. (2025). These architectures apply self-attention
+across tabular feature columns rather than treating features as a flat sequence.
+
+References:
+    - Parsa, M., Lawley, C.J.M., et al. (2025). Large Language Models and
+      Geoscience Transformers for Predictive Mapping of Canadian Critical Minerals.
+      Natural Resources Research. DOI: 10.1007/s11053-025-10564-0
+    - Huang, X., et al. (2020). TabTransformer: Tabular Data Modeling Using
+      Contextual Embeddings. arXiv:2012.06678
+    - Gorishniy, Y., et al. (2021). Revisiting Deep Learning Models for Tabular
+      Data. NeurIPS 2021 (FT-Transformer).
+    - NRCan/Geoscience_Language_Models: https://github.com/NRCan/Geoscience_Language_Models
 """
 
 from typing import Optional, Dict, Any, List
+import math
 import torch
 import torch.nn as nn
 
@@ -117,6 +132,267 @@ class GeoscienceTransformer(nn.Module):
         x = self.transformer(x, src_key_padding_mask=mask)
         x = x.mean(dim=1)
         return x
+
+
+class TabTransformer(nn.Module):
+    """
+    TabTransformer for tabular geoscience data.
+
+    Applies self-attention across individual tabular feature columns. Each
+    continuous feature is projected to an embedding, then transformer layers
+    apply column-wise attention so that features can interact contextually.
+
+    This is the architecture described in Parsa et al. (2025) for integrating
+    geophysical, geochemical, geochronological, and text-derived features.
+
+    Reference:
+        Huang, X., et al. (2020). TabTransformer: Tabular Data Modeling Using
+        Contextual Embeddings. arXiv:2012.06678
+    """
+
+    def __init__(
+        self,
+        num_features: int,
+        hidden_dim: int = 256,
+        num_layers: int = 4,
+        num_heads: int = 8,
+        dropout: float = 0.1,
+        output_dim: int = 1
+    ):
+        """
+        Initialize TabTransformer.
+
+        Args:
+            num_features: Number of input feature columns
+            hidden_dim: Dimension for each column embedding
+            num_layers: Number of transformer layers
+            num_heads: Number of attention heads
+            dropout: Dropout rate
+            output_dim: Output dimension (1 for binary prospectivity)
+        """
+        super().__init__()
+
+        self.num_features = num_features
+        self.hidden_dim = hidden_dim
+
+        # Per-column linear embeddings (each feature gets its own projection)
+        self.column_embeddings = nn.ModuleList([
+            nn.Linear(1, hidden_dim) for _ in range(num_features)
+        ])
+
+        # Learnable column-type embeddings (analogous to positional encoding)
+        self.column_type_embedding = nn.Parameter(
+            torch.randn(num_features, hidden_dim) * 0.02
+        )
+
+        # Transformer encoder for column-wise self-attention
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim * 4,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer, num_layers=num_layers
+        )
+
+        # Output MLP
+        self.output_head = nn.Sequential(
+            nn.LayerNorm(hidden_dim * num_features),
+            nn.Linear(hidden_dim * num_features, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass.
+
+        Args:
+            x: Tabular features (batch_size, num_features)
+
+        Returns:
+            Output tensor (batch_size, output_dim)
+        """
+        batch_size = x.shape[0]
+
+        # Embed each column separately: (batch, num_features, hidden_dim)
+        column_tensors = []
+        for i in range(self.num_features):
+            col_val = x[:, i:i+1]  # (batch, 1)
+            col_emb = self.column_embeddings[i](col_val)  # (batch, hidden_dim)
+            column_tensors.append(col_emb)
+        embedded = torch.stack(column_tensors, dim=1)  # (batch, num_feat, hidden)
+
+        # Add column-type embeddings
+        embedded = embedded + self.column_type_embedding.unsqueeze(0)
+
+        # Apply transformer (column-wise self-attention)
+        contextual = self.transformer(embedded)  # (batch, num_feat, hidden)
+
+        # Flatten and predict
+        flat = contextual.reshape(batch_size, -1)
+        output = self.output_head(flat)
+
+        return output
+
+    def get_embeddings(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Get contextual column embeddings (before output head).
+
+        Args:
+            x: Tabular features (batch_size, num_features)
+
+        Returns:
+            Embedding tensor (batch_size, hidden_dim * num_features)
+        """
+        batch_size = x.shape[0]
+        column_tensors = []
+        for i in range(self.num_features):
+            col_val = x[:, i:i+1]
+            col_emb = self.column_embeddings[i](col_val)
+            column_tensors.append(col_emb)
+        embedded = torch.stack(column_tensors, dim=1)
+        embedded = embedded + self.column_type_embedding.unsqueeze(0)
+        contextual = self.transformer(embedded)
+        return contextual.reshape(batch_size, -1)
+
+
+class FTTransformer(nn.Module):
+    """
+    FT-Transformer (Feature Tokenizer + Transformer) for tabular data.
+
+    Each numerical feature is tokenized into an embedding using a learned linear
+    projection, then a [CLS] token is prepended and transformer layers apply
+    self-attention across all feature tokens. The [CLS] representation is used
+    for prediction.
+
+    This is the architecture described in Parsa et al. (2025) for mineral
+    prospectivity mapping with multimodal geoscience features.
+
+    Reference:
+        Gorishniy, Y., et al. (2021). Revisiting Deep Learning Models for
+        Tabular Data. NeurIPS 2021.
+    """
+
+    def __init__(
+        self,
+        num_features: int,
+        hidden_dim: int = 256,
+        num_layers: int = 4,
+        num_heads: int = 8,
+        dropout: float = 0.1,
+        output_dim: int = 1
+    ):
+        """
+        Initialize FT-Transformer.
+
+        Args:
+            num_features: Number of input feature columns
+            hidden_dim: Dimension for each feature token
+            num_layers: Number of transformer layers
+            num_heads: Number of attention heads
+            dropout: Dropout rate
+            output_dim: Output dimension
+        """
+        super().__init__()
+
+        self.num_features = num_features
+        self.hidden_dim = hidden_dim
+
+        # Feature tokenizer: per-column linear projection + bias
+        self.feature_tokenizer = nn.ModuleList([
+            nn.Linear(1, hidden_dim) for _ in range(num_features)
+        ])
+
+        # Learnable [CLS] token
+        self.cls_token = nn.Parameter(torch.randn(1, 1, hidden_dim) * 0.02)
+
+        # Positional/column embeddings for features + CLS
+        self.position_embedding = nn.Parameter(
+            torch.randn(1, num_features + 1, hidden_dim) * 0.02
+        )
+
+        # Transformer encoder
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim * 4,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer, num_layers=num_layers
+        )
+
+        # Layer norm and output head on [CLS] token
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.output_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 2, output_dim)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass.
+
+        Args:
+            x: Tabular features (batch_size, num_features)
+
+        Returns:
+            Output tensor (batch_size, output_dim)
+        """
+        batch_size = x.shape[0]
+
+        # Tokenize each feature column
+        tokens = []
+        for i in range(self.num_features):
+            col_val = x[:, i:i+1]  # (batch, 1)
+            token = self.feature_tokenizer[i](col_val)  # (batch, hidden_dim)
+            tokens.append(token)
+        feature_tokens = torch.stack(tokens, dim=1)  # (batch, num_feat, hidden)
+
+        # Prepend [CLS] token
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)
+        sequence = torch.cat([cls_tokens, feature_tokens], dim=1)
+
+        # Add positional embeddings
+        sequence = sequence + self.position_embedding
+
+        # Apply transformer
+        transformed = self.transformer(sequence)
+
+        # Extract [CLS] token output
+        cls_output = self.norm(transformed[:, 0, :])
+
+        return self.output_head(cls_output)
+
+    def get_embeddings(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Get [CLS] token embedding (before output head).
+
+        Args:
+            x: Tabular features (batch_size, num_features)
+
+        Returns:
+            Embedding tensor (batch_size, hidden_dim)
+        """
+        batch_size = x.shape[0]
+        tokens = []
+        for i in range(self.num_features):
+            col_val = x[:, i:i+1]
+            token = self.feature_tokenizer[i](col_val)
+            tokens.append(token)
+        feature_tokens = torch.stack(tokens, dim=1)
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)
+        sequence = torch.cat([cls_tokens, feature_tokens], dim=1)
+        sequence = sequence + self.position_embedding
+        transformed = self.transformer(sequence)
+        return self.norm(transformed[:, 0, :])
 
 
 class ProspectivityModel(nn.Module):

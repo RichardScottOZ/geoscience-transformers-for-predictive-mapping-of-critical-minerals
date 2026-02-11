@@ -10,8 +10,8 @@ from pathlib import Path
 import pandas as pd
 import torch
 
-from .models import GeoscienceTransformer, ProspectivityModel, SelfSupervisedWrapper
-from .training import SelfSupervisedTrainer, SupervisedTrainer, GeoscienceDataset
+from .models import GeoscienceTransformer, ProspectivityModel, SelfSupervisedWrapper, TabTransformer, FTTransformer
+from .training import SelfSupervisedTrainer, SupervisedTrainer, GeoscienceDataset, PseudoLabelTrainer
 from .prediction import ProspectivityPredictor
 from .data_integration import MultimodalDataIntegrator
 
@@ -63,6 +63,20 @@ def train():
             text_embedding_dim=config.get("text_embedding_dim", 768),
             hidden_dim=config.get("hidden_dim", 256),
             num_layers=config.get("num_layers", 4)
+        )
+    elif config.get("model_type") == "tab_transformer":
+        model = TabTransformer(
+            num_features=features.shape[1],
+            hidden_dim=config.get("hidden_dim", 256),
+            num_layers=config.get("num_layers", 4),
+            num_heads=config.get("num_heads", 8),
+        )
+    elif config.get("model_type") == "ft_transformer":
+        model = FTTransformer(
+            num_features=features.shape[1],
+            hidden_dim=config.get("hidden_dim", 256),
+            num_layers=config.get("num_layers", 4),
+            num_heads=config.get("num_heads", 8),
         )
     else:
         model = GeoscienceTransformer(
