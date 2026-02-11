@@ -7,7 +7,9 @@ import torch
 from geoscience_transformers.models import (
     GeoscienceTransformer, 
     ProspectivityModel,
-    SelfSupervisedWrapper
+    SelfSupervisedWrapper,
+    TabTransformer,
+    FTTransformer,
 )
 
 
@@ -83,4 +85,104 @@ def test_self_supervised_wrapper():
     loss = wrapper.contrastive_loss(z1, z2)
     
     assert loss.item() >= 0  # Loss should be non-negative
+    assert not torch.isnan(loss)
+
+
+def test_tab_transformer():
+    """Test TabTransformer for tabular data."""
+    num_features = 20
+    model = TabTransformer(
+        num_features=num_features,
+        hidden_dim=64,
+        num_layers=2,
+        num_heads=4,
+        output_dim=1
+    )
+
+    # Test forward pass
+    x = torch.randn(8, num_features)
+    output = model(x)
+
+    assert output.shape == (8, 1)
+
+    # Test get_embeddings (mean-pooled across columns)
+    embeddings = model.get_embeddings(x)
+    assert embeddings.shape == (8, 64)  # Mean-pooled to hidden_dim
+
+
+def test_tab_transformer_column_attention():
+    """Test that TabTransformer uses column-wise self-attention."""
+    model = TabTransformer(
+        num_features=5,
+        hidden_dim=32,
+        num_layers=1,
+        num_heads=4,
+    )
+
+    x = torch.randn(4, 5)
+    output = model(x)
+    assert output.shape == (4, 1)
+
+    # Verify column_type_embedding has correct shape
+    assert model.column_type_embedding.shape == (5, 32)
+
+
+def test_ft_transformer():
+    """Test FT-Transformer with [CLS] token."""
+    num_features = 15
+    model = FTTransformer(
+        num_features=num_features,
+        hidden_dim=64,
+        num_layers=2,
+        num_heads=4,
+        output_dim=1
+    )
+
+    # Test forward pass
+    x = torch.randn(8, num_features)
+    output = model(x)
+
+    assert output.shape == (8, 1)
+
+    # Test get_embeddings returns [CLS] token representation
+    embeddings = model.get_embeddings(x)
+    assert embeddings.shape == (8, 64)  # CLS token dim == hidden_dim
+
+
+def test_ft_transformer_cls_token():
+    """Test FT-Transformer [CLS] token and position embeddings."""
+    model = FTTransformer(
+        num_features=10,
+        hidden_dim=32,
+        num_layers=1,
+        num_heads=4,
+    )
+
+    # CLS token should be (1, 1, hidden_dim)
+    assert model.cls_token.shape == (1, 1, 32)
+
+    # Position embedding covers CLS + all features
+    assert model.position_embedding.shape == (1, 11, 32)  # 10 features + 1 CLS
+
+
+def test_tab_transformer_self_supervised():
+    """Test TabTransformer with SelfSupervisedWrapper."""
+    base_model = TabTransformer(
+        num_features=10,
+        hidden_dim=32,
+        num_layers=1,
+        num_heads=4,
+    )
+
+    wrapper = SelfSupervisedWrapper(base_model, projection_dim=16)
+
+    # get_embeddings should work through wrapper
+    x = torch.randn(4, 10)
+    emb = wrapper.get_embeddings(x)
+    assert emb.shape[0] == 4
+
+    # Contrastive loss should work with TabTransformer embeddings
+    z1 = wrapper.get_embeddings(torch.randn(4, 10))
+    z2 = wrapper.get_embeddings(torch.randn(4, 10))
+    loss = wrapper.contrastive_loss(z1, z2)
     assert not torch.isnan(loss)

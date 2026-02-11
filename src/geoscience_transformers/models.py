@@ -240,13 +240,16 @@ class TabTransformer(nn.Module):
 
     def get_embeddings(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Get contextual column embeddings (before output head).
+        Get contextual column embeddings (mean-pooled across columns).
+
+        Returns a single hidden_dim vector per sample, suitable for use with
+        SelfSupervisedWrapper projection heads.
 
         Args:
             x: Tabular features (batch_size, num_features)
 
         Returns:
-            Embedding tensor (batch_size, hidden_dim * num_features)
+            Embedding tensor (batch_size, hidden_dim)
         """
         batch_size = x.shape[0]
         column_tensors = []
@@ -257,7 +260,8 @@ class TabTransformer(nn.Module):
         embedded = torch.stack(column_tensors, dim=1)
         embedded = embedded + self.column_type_embedding.unsqueeze(0)
         contextual = self.transformer(embedded)
-        return contextual.reshape(batch_size, -1)
+        # Mean pool across columns to get hidden_dim vector
+        return contextual.mean(dim=1)
 
 
 class FTTransformer(nn.Module):
