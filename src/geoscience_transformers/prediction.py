@@ -13,6 +13,9 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+import rasterio
+from rasterio.transform import from_bounds
+from scipy.interpolate import griddata
 
 
 class ProspectivityPredictor:
@@ -325,7 +328,9 @@ class ProspectivityPredictor:
         self,
         geodata: gpd.GeoDataFrame,
         output_path: str,
-        output_format: str = "geojson"
+        output_format: str = "geojson",
+        resolution: Optional[float] = None,
+        interpolation_method: str = "linear"
     ):
         """
         Export predictions to file.
@@ -333,7 +338,9 @@ class ProspectivityPredictor:
         Args:
             geodata: GeoDataFrame with predictions
             output_path: Output file path
-            output_format: Output format ('geojson', 'shapefile', 'gpkg')
+            output_format: Output format ('geojson', 'shapefile', 'gpkg', 'geotiff')
+            resolution: Grid resolution for GeoTIFF export (in CRS units)
+            interpolation_method: Interpolation method for GeoTIFF ('linear', 'nearest', 'cubic')
         """
         if output_format == "geojson":
             geodata.to_file(output_path, driver="GeoJSON")
@@ -341,7 +348,157 @@ class ProspectivityPredictor:
             geodata.to_file(output_path, driver="ESRI Shapefile")
         elif output_format == "gpkg":
             geodata.to_file(output_path, driver="GPKG")
+        elif output_format == "geotiff":
+            self.export_to_geotiff(
+                geodata, 
+                output_path, 
+                resolution=resolution,
+                interpolation_method=interpolation_method
+            )
         else:
             raise ValueError(f"Unknown format: {output_format}")
             
         print(f"Exported predictions to {output_path}")
+    
+    def export_to_geotiff(
+        self,
+        geodata: gpd.GeoDataFrame,
+        output_path: str,
+        resolution: Optional[float] = None,
+        interpolation_method: str = "linear",
+        nodata_value: float = -9999.0
+    ):
+        """
+        Export predictions to GeoTIFF raster format.
+        
+        Args:
+            geodata: GeoDataFrame with predictions and geometry
+            output_path: Output GeoTIFF file path
+            resolution: Grid resolution in CRS units (auto-calculated if None)
+            interpolation_method: Interpolation method ('linear', 'nearest', 'cubic')
+            nodata_value: Value to use for cells with no data
+        """
+        # Ensure we have prospectivity column
+        if "prospectivity" not in geodata.columns:
+            raise ValueError("GeoDataFrame must have 'prospectivity' column")
+        
+        # Get CRS
+        crs = geodata.crs
+        if crs is None:
+            raise ValueError("GeoDataFrame must have a defined CRS")
+        
+        # Extract point coordinates from geometries
+        # Convert polygons to centroids, keep points as-is
+        coords = []
+        for geom in geodata.geometry:
+            if geom.geom_type == 'Point':
+                coords.append((geom.x, geom.y))
+            elif geom.geom_type in ['Polygon', 'MultiPolygon']:
+                centroid = geom.centroid
+                coords.append((centroid.x, centroid.y))
+            else:
+                # For other geometry types, use centroid
+                centroid = geom.centroid
+                coords.append((centroid.x, centroid.y))
+        
+        coords = np.array(coords)
+        x_coords = coords[:, 0]
+        y_coords = coords[:, 1]
+        
+        # Get prospectivity values
+        prospectivity_values = geodata["prospectivity"].values
+        
+        # Get uncertainty values if available
+        has_uncertainty = "uncertainty" in geodata.columns
+        if has_uncertainty:
+            uncertainty_values = geodata["uncertainty"].values
+        
+        # Calculate grid bounds
+        x_min, x_max = x_coords.min(), x_coords.max()
+        y_min, y_max = y_coords.min(), y_coords.max()
+        
+        # Add small buffer (5% of range)
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+        x_min -= x_range * 0.05
+        x_max += x_range * 0.05
+        y_min -= y_range * 0.05
+        y_max += y_range * 0.05
+        
+        # Calculate resolution if not provided
+        if resolution is None:
+            # Default to approximately 100x100 grid
+            resolution = min(x_range, y_range) / 100
+        
+        # Create regular grid
+        grid_x = np.arange(x_min, x_max, resolution)
+        grid_y = np.arange(y_min, y_max, resolution)
+        grid_x_mesh, grid_y_mesh = np.meshgrid(grid_x, grid_y)
+        
+        # Interpolate prospectivity values to grid
+        print(f"Interpolating {len(prospectivity_values)} points to {grid_x.shape[0]}x{grid_y.shape[0]} grid...")
+        prospectivity_grid = griddata(
+            (x_coords, y_coords),
+            prospectivity_values,
+            (grid_x_mesh, grid_y_mesh),
+            method=interpolation_method,
+            fill_value=nodata_value
+        )
+        
+        # Interpolate uncertainty values if available
+        if has_uncertainty:
+            uncertainty_grid = griddata(
+                (x_coords, y_coords),
+                uncertainty_values,
+                (grid_x_mesh, grid_y_mesh),
+                method=interpolation_method,
+                fill_value=nodata_value
+            )
+        
+        # Flip grid vertically (rasterio uses top-left origin)
+        prospectivity_grid = np.flipud(prospectivity_grid)
+        if has_uncertainty:
+            uncertainty_grid = np.flipud(uncertainty_grid)
+        
+        # Create transform
+        transform = from_bounds(x_min, y_min, x_max, y_max, 
+                               prospectivity_grid.shape[1], 
+                               prospectivity_grid.shape[0])
+        
+        # Determine number of bands
+        num_bands = 2 if has_uncertainty else 1
+        
+        # Write GeoTIFF
+        with rasterio.open(
+            output_path,
+            'w',
+            driver='GTiff',
+            height=prospectivity_grid.shape[0],
+            width=prospectivity_grid.shape[1],
+            count=num_bands,
+            dtype=prospectivity_grid.dtype,
+            crs=crs,
+            transform=transform,
+            nodata=nodata_value,
+            compress='lzw'  # Use LZW compression to reduce file size
+        ) as dst:
+            # Write prospectivity as band 1
+            dst.write(prospectivity_grid, 1)
+            dst.set_band_description(1, 'Prospectivity')
+            
+            # Write uncertainty as band 2 if available
+            if has_uncertainty:
+                dst.write(uncertainty_grid, 2)
+                dst.set_band_description(2, 'Uncertainty')
+        
+        print(f"GeoTIFF raster saved to {output_path}")
+        print(f"  Grid size: {prospectivity_grid.shape[1]} x {prospectivity_grid.shape[0]}")
+        
+        # Safely get unit name from CRS
+        unit_name = 'units'
+        if crs.axis_info and len(crs.axis_info) > 0:
+            unit_name = crs.axis_info[0].unit_name
+        
+        print(f"  Resolution: {resolution:.2f} {unit_name}")
+        print(f"  Bands: {num_bands} ({'Prospectivity, Uncertainty' if has_uncertainty else 'Prospectivity'})")
+

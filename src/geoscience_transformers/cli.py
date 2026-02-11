@@ -117,6 +117,11 @@ def predict():
     parser.add_argument("--config", type=str, required=True, help="Path to config file")
     parser.add_argument("--output", type=str, required=True, help="Output file path")
     parser.add_argument("--uncertainty", action="store_true", help="Estimate uncertainty")
+    parser.add_argument("--format", type=str, default="geojson", 
+                       choices=["geojson", "shapefile", "gpkg", "geotiff", "csv"],
+                       help="Output format (default: geojson)")
+    parser.add_argument("--resolution", type=float, default=None,
+                       help="Grid resolution for GeoTIFF output (in CRS units)")
     
     args = parser.parse_args()
     
@@ -170,9 +175,15 @@ def predict():
             feature_columns,
             return_uncertainty=args.uncertainty
         )
-        results.to_file(args.output, driver="GeoJSON")
+        # Export in requested format
+        predictor.export_predictions(
+            results, 
+            args.output, 
+            output_format=args.format,
+            resolution=args.resolution
+        )
     else:
-        # Regular predictions
+        # Regular predictions (CSV only for non-spatial data)
         if args.uncertainty:
             predictions, uncertainties = predictor.predict(
                 features, 
@@ -185,8 +196,7 @@ def predict():
             data["prospectivity"] = predictions
         
         data.to_csv(args.output, index=False)
-    
-    print(f"Predictions saved to {args.output}")
+        print(f"Predictions saved to {args.output}")
 
 
 if __name__ == "__main__":

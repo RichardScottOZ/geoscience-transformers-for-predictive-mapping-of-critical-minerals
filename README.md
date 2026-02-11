@@ -18,6 +18,7 @@ This Python package provides tools for mineral prospectivity mapping using trans
 - **Self-Supervised Learning**: Train models with limited labeled data using contrastive learning
 - **Prospectivity Mapping**: Generate high-resolution mineral prospectivity maps
 - **Uncertainty Quantification**: Estimate prediction uncertainty for risk assessment
+- **GeoTIFF Export**: Export predictions as georeferenced raster files for GIS integration
 - **Visualization Tools**: Create publication-ready maps and analysis plots
 
 ## Installation
@@ -140,6 +141,47 @@ high_potential = predictor.identify_high_potential_areas(
     threshold=0.8,
     min_area=1000.0
 )
+
+# Export predictions in multiple formats
+# Vector format (GeoJSON, Shapefile, GeoPackage)
+predictor.export_predictions(
+    results,
+    output_path="predictions.geojson",
+    output_format="geojson"
+)
+
+# Raster format (GeoTIFF) - for GIS software
+predictor.export_predictions(
+    results,
+    output_path="prospectivity_map.tif",
+    output_format="geotiff",
+    resolution=0.01  # Grid resolution in CRS units
+)
+```
+
+### 5. GeoTIFF Export for GIS Integration
+
+Export predictions as georeferenced raster files:
+
+```python
+# Export as GeoTIFF with custom settings
+predictor.export_to_geotiff(
+    results,
+    output_path="prospectivity_map.tif",
+    resolution=0.01,  # Grid resolution (e.g., 0.01 degrees)
+    interpolation_method="linear"  # 'linear', 'nearest', or 'cubic'
+)
+
+# The GeoTIFF will contain:
+# - Band 1: Prospectivity scores (0-1 range)
+# - Band 2: Uncertainty estimates (if available)
+# - Full georeferencing with CRS information
+# - Compressed with LZW for smaller file size
+
+# Use in GIS software:
+# - QGIS: Layer > Add Raster Layer
+# - ArcGIS: Add Data > Raster
+# - Python/rasterio: rasterio.open('prospectivity_map.tif')
 ```
 
 ## Command Line Interface
@@ -162,6 +204,19 @@ geoscience-predict \
     --config config.yaml \
     --data input_data.geojson \
     --output predictions.geojson \
+    --uncertainty
+```
+
+Export as GeoTIFF raster:
+
+```bash
+geoscience-predict \
+    --model ./models/best_model.pt \
+    --config config.yaml \
+    --data input_data.geojson \
+    --output prospectivity_map.tif \
+    --format geotiff \
+    --resolution 0.01 \
     --uncertainty
 ```
 
@@ -228,6 +283,7 @@ See the `examples/` directory for complete workflows:
 
 - `examples/basic_usage.py` - Basic usage examples
 - `examples/full_pipeline.py` - Complete prospectivity mapping pipeline
+- `examples/geotiff_export_example.py` - GeoTIFF export and GIS integration
 - `examples/self_supervised.py` - Self-supervised pre-training
 - `notebooks/tutorial.ipynb` - Interactive Jupyter notebook tutorial
 
