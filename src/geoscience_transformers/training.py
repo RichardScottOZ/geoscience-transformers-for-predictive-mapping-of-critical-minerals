@@ -142,9 +142,11 @@ class SelfSupervisedTrainer:
                 emb1 = self.model.transformer.get_embeddings(view1)
                 emb2 = self.model.transformer.get_embeddings(view2)
             else:
-                # Direct model call
-                emb1 = self.model(view1)
-                emb2 = self.model(view2)
+                raise TypeError(
+                    "Model must have a get_embeddings() method or a transformer "
+                    "attribute with get_embeddings(). Wrap your model in "
+                    "SelfSupervisedWrapper or add a get_embeddings() method."
+                )
             
             # Compute contrastive loss
             if hasattr(self.model, 'contrastive_loss'):
@@ -191,8 +193,10 @@ class SelfSupervisedTrainer:
                     emb1 = self.model.transformer.get_embeddings(view1)
                     emb2 = self.model.transformer.get_embeddings(view2)
                 else:
-                    emb1 = self.model(view1)
-                    emb2 = self.model(view2)
+                    raise TypeError(
+                        "Model must have a get_embeddings() method or a "
+                        "transformer attribute with get_embeddings()."
+                    )
                 
                 # Compute loss
                 if hasattr(self.model, 'contrastive_loss'):
