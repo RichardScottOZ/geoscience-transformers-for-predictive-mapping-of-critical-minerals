@@ -1,0 +1,58 @@
+# Example configuration for model training and prediction
+
+# Model configuration
+model_type: prospectivity  # Options: 'prospectivity', 'transformer'
+hidden_dim: 256
+num_layers: 4
+num_heads: 8
+dropout: 0.1
+
+# Data dimensions
+geochemical_dim: 50
+geophysical_dim: 20
+text_embedding_dim: 768
+
+# Training parameters
+batch_size: 32
+learning_rate: 0.0001
+num_epochs: 10
+weight_decay: 0.01
+
+# Data preprocessing
+normalize: true
+scaler_type: standard  # Options: 'standard', 'minmax'
+
+# Feature columns (adjust based on your data)
+feature_columns:
+  # Geochemical features
+  - Cu
+  - Au
+  - Ag
+  - Pb
+  - Zn
+  - Fe
+  - Cu_Au_ratio
+  - Cu_log
+  - Au_log
+  
+  # Geophysical features
+  - magnetic_intensity
+  - gravity
+  - magnetic_intensity_gradient
+  - gravity_gradient
+  
+  # Spatial features
+  - distance_from_center
+  - spatial_density
+  
+  # Text embeddings (if using)
+  - text_emb_0
+  - text_emb_1
+  # ... add more embedding dimensions as needed
+
+# Label column (for supervised learning)
+label_column: deposit_present
+
+# Spatial configuration
+spatial_resolution: 1000.0  # meters
+crs: EPSG:4326  # Coordinate reference system
